@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
-import { screen } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { act } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -443,5 +443,134 @@ describe("ProductBrowser category filter", () => {
     expect(screen.getByRole("combobox", { name: /category/i })).toHaveValue(
       "furniture",
     )
+  })
+})
+
+describe("ProductBrowser search", () => {
+  it("sets ?q=<term> in the URL and fetches from /products/search after the debounce", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    await user.type(screen.getByRole("textbox", { name: /search/i }), "phone")
+
+    await waitFor(() =>
+      expect(router.state.location.search).toBe("?page=1&q=phone"),
+    )
+    await waitFor(() =>
+      expect(fetch).toHaveBeenLastCalledWith(
+        "https://dummyjson.com/products/search?q=phone&limit=12&skip=0",
+      ),
+    )
+  })
+
+  it("does not update the URL or fetch before the debounce settles", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    const fetchCallsBeforeTyping = vi.mocked(fetch).mock.calls.length
+    await user.type(screen.getByRole("textbox", { name: /search/i }), "ph")
+
+    expect(router.state.location.search).toBe("")
+    expect(vi.mocked(fetch).mock.calls.length).toBe(fetchCallsBeforeTyping)
+  })
+
+  it("setting a search term clears an active category and resets the select to All categories", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?category=beauty"],
+    })
+
+    await screen.findByText("Product 1")
+    await user.type(screen.getByRole("textbox", { name: /search/i }), "mascara")
+
+    await waitFor(() =>
+      expect(router.state.location.search).toBe("?page=1&q=mascara"),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /category/i })).toHaveValue(
+        "all",
+      ),
+    )
+    await waitFor(() =>
+      expect(fetch).toHaveBeenLastCalledWith(
+        "https://dummyjson.com/products/search?q=mascara&limit=12&skip=0",
+      ),
+    )
+  })
+
+  it("selecting a category clears an active search term and empties the search box", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?q=phone"],
+    })
+
+    await screen.findByText("Product 1")
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /category/i }),
+      "beauty",
+    )
+
+    await screen.findByText("Product 1")
+    expect(router.state.location.search).toBe("?page=1&category=beauty")
+    expect(screen.getByRole("textbox", { name: /search/i })).toHaveValue("")
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://dummyjson.com/products/category/beauty?limit=12&skip=0",
+    )
+  })
+
+  it("pressing Back right after typing returns to the state before typing began, not an intermediate keystroke", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?category=beauty"],
+    })
+
+    await screen.findByText("Product 1")
+    await user.type(screen.getByRole("textbox", { name: /search/i }), "ph")
+
+    act(() => {
+      router.navigate(-1)
+    })
+
+    expect(router.state.location.search).toBe("?category=beauty")
+  })
+
+  it("reproduces a search view when a URL with ?q=<term> is opened directly", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?q=phone"],
+    })
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products/search?q=phone&limit=12&skip=0",
+    )
+    expect(screen.getByRole("textbox", { name: /search/i })).toHaveValue("phone")
+  })
+
+  it("shows 'No products found' when a search has no matches", async () => {
+    vi.mocked(fetch).mockImplementation(
+      withCategoryList(() =>
+        jsonResponse({ products: [], total: 0, skip: 0, limit: 0 }),
+      ),
+    )
+
+    renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?q=zzzznomatch"],
+    })
+
+    expect(await screen.findByText(/no products found/i)).toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { ChevronLeft, ChevronRight, CircleAlert, RefreshCw } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router"
 import { ProductCard } from "@/components/product-card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -7,6 +8,7 @@ import type { ProductsResponse } from "@/lib/types"
 
 const PRODUCT_GRID_CLASSES = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
 const PAGE_LIMIT = 12
+const SEARCH_DEBOUNCE_MS = 300
 
 const SORT_FIELDS = ["title", "price", "rating"] as const
 type SortField = (typeof SORT_FIELDS)[number]
@@ -57,15 +59,24 @@ function parseCategory(searchParams: URLSearchParams): string | undefined {
   return searchParams.get("category") ?? undefined
 }
 
+function parseQuery(searchParams: URLSearchParams): string {
+  return searchParams.get("q") ?? ""
+}
+
 async function fetchProducts(
   skip: number,
   sort: Sort,
   category: string | undefined,
+  q: string,
 ): Promise<ProductsResponse> {
-  const base = category
-    ? `https://dummyjson.com/products/category/${category}`
-    : "https://dummyjson.com/products"
-  let url = `${base}?limit=${PAGE_LIMIT}&skip=${skip}`
+  const base = q
+    ? "https://dummyjson.com/products/search"
+    : category
+      ? `https://dummyjson.com/products/category/${category}`
+      : "https://dummyjson.com/products"
+  let url = q
+    ? `${base}?q=${encodeURIComponent(q)}&limit=${PAGE_LIMIT}&skip=${skip}`
+    : `${base}?limit=${PAGE_LIMIT}&skip=${skip}`
   if (sort.sortBy && sort.order) {
     url += `&sortBy=${sort.sortBy}&order=${sort.order}`
   }
@@ -90,10 +101,22 @@ export function ProductBrowser() {
   const skip = (page - 1) * PAGE_LIMIT
   const sort = parseSort(searchParams)
   const category = parseCategory(searchParams)
+  const q = parseQuery(searchParams)
+
+  const [searchInput, setSearchInput] = useState(q)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  useEffect(() => {
+    setSearchInput(q)
+  }, [q])
+
+  useEffect(() => {
+    return () => clearTimeout(debounceTimerRef.current)
+  }, [])
 
   const { data, isPending, isFetching, isError, refetch } = useQuery({
-    queryKey: ["products", { skip, limit: PAGE_LIMIT, category, ...sort }],
-    queryFn: () => fetchProducts(skip, sort, category),
+    queryKey: ["products", { skip, limit: PAGE_LIMIT, category, q, ...sort }],
+    queryFn: () => fetchProducts(skip, sort, category, q),
     placeholderData: keepPreviousData,
   })
 
@@ -130,9 +153,12 @@ export function ProductBrowser() {
   }
 
   function handleCategoryChange(value: string) {
+    clearTimeout(debounceTimerRef.current)
+    setSearchInput("")
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.set("page", "1")
+      next.delete("q")
       if (value === ALL_CATEGORIES_VALUE) {
         next.delete("category")
       } else {
@@ -142,13 +168,45 @@ export function ProductBrowser() {
     })
   }
 
+  function handleSearchChange(value: string) {
+    setSearchInput(value)
+    clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set("page", "1")
+        if (value) {
+          next.set("q", value)
+          next.delete("category")
+        } else {
+          next.delete("q")
+        }
+        return next
+      })
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="border-b border-border px-4 py-3">
         <h1 className="text-lg font-semibold">Product Browser</h1>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-4">
-        <div className="mb-4 flex items-center justify-end gap-4">
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-4">
+          <div className="flex items-center gap-2">
+            <label htmlFor="search" className="text-sm text-muted-foreground">
+              Search
+            </label>
+            <input
+              id="search"
+              type="text"
+              aria-label="Search"
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search products..."
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            />
+          </div>
           <div className="flex items-center gap-2">
             <label htmlFor="category" className="text-sm text-muted-foreground">
               Category
