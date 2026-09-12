@@ -1,5 +1,5 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { QueryClient } from "@tanstack/react-query"
+import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { act } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,6 +9,33 @@ import { renderWithQueryClient } from "@/test/render"
 
 function jsonResponse(body: unknown, ok = true): Response {
   return { ok, json: async () => body } as Response
+}
+
+function productsPage(page: number, total = 40): ProductsResponse {
+  const limit = 12
+  const skip = (page - 1) * limit
+  const count = Math.min(limit, Math.max(total - skip, 0))
+  return {
+    products: Array.from({ length: count }, (_, i) => ({
+      id: skip + i + 1,
+      title: `Product ${skip + i + 1}`,
+      category: "beauty",
+      price: 9.99,
+      rating: 4,
+      thumbnail: "https://cdn.dummyjson.com/products/images/1/thumbnail.png",
+    })),
+    total,
+    skip,
+    limit,
+  }
+}
+
+function mockPaginatedFetch() {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = new URL(String(input))
+    const skip = Number(url.searchParams.get("skip"))
+    return jsonResponse(productsPage(skip / 12 + 1))
+  })
 }
 
 beforeEach(() => {
@@ -141,11 +168,7 @@ describe("ProductBrowser", () => {
       )
       .mockRejectedValueOnce(new Error("network down"))
 
-    render(
-      <QueryClientProvider client={client}>
-        <ProductBrowser />
-      </QueryClientProvider>,
-    )
+    renderWithQueryClient(<ProductBrowser />, { client })
 
     await screen.findByText("Essence Mascara Lash Princess")
 
@@ -169,5 +192,75 @@ describe("ProductBrowser", () => {
     renderWithQueryClient(<ProductBrowser />)
 
     expect(await screen.findByText(/no products found/i)).toBeInTheDocument()
+  })
+})
+
+describe("ProductBrowser pagination", () => {
+  it("fetches the first page with skip=0 and limit=12 by default", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0",
+    )
+    expect(screen.getByText("Page 1 of 4")).toBeInTheDocument()
+  })
+
+  it("navigating to page 2 sets ?page=2 in the URL and fetches with skip=12", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    await user.click(screen.getByRole("button", { name: /next/i }))
+
+    await screen.findByText("Product 13")
+    expect(router.state.location.search).toBe("?page=2")
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=12",
+    )
+  })
+
+  it("shows page N directly when a URL with ?page=N is opened", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, { initialEntries: ["/?page=3"] })
+
+    await screen.findByText("Product 25")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=24",
+    )
+    expect(screen.getByText("Page 3 of 4")).toBeInTheDocument()
+  })
+
+  it("returns to the previous page's view when navigating back", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    await user.click(screen.getByRole("button", { name: /next/i }))
+    await screen.findByText("Product 13")
+
+    act(() => {
+      router.navigate(-1)
+    })
+
+    await screen.findByText("Product 1")
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("disables Previous on the first page and Next on the last page", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, { initialEntries: ["/?page=4"] })
+
+    await screen.findByText("Page 4 of 4")
+    expect(screen.getByRole("button", { name: /previous/i })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled()
   })
 })

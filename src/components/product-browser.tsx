@@ -1,13 +1,22 @@
-import { useQuery } from "@tanstack/react-query"
-import { CircleAlert, RefreshCw } from "lucide-react"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { ChevronLeft, ChevronRight, CircleAlert, RefreshCw } from "lucide-react"
+import { useSearchParams } from "react-router"
 import { ProductCard } from "@/components/product-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ProductsResponse } from "@/lib/types"
 
 const PRODUCT_GRID_CLASSES = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+const PAGE_LIMIT = 12
 
-async function fetchProducts(): Promise<ProductsResponse> {
-  const response = await fetch("https://dummyjson.com/products")
+function parsePage(value: string | null): number {
+  const page = Number(value)
+  return Number.isInteger(page) && page > 0 ? page : 1
+}
+
+async function fetchProducts(skip: number): Promise<ProductsResponse> {
+  const response = await fetch(
+    `https://dummyjson.com/products?limit=${PAGE_LIMIT}&skip=${skip}`,
+  )
   if (!response.ok) {
     throw new Error("Failed to fetch products")
   }
@@ -15,10 +24,25 @@ async function fetchProducts(): Promise<ProductsResponse> {
 }
 
 export function ProductBrowser() {
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ["products"],
-    queryFn: fetchProducts,
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = parsePage(searchParams.get("page"))
+  const skip = (page - 1) * PAGE_LIMIT
+
+  const { data, isPending, isFetching, isError, refetch } = useQuery({
+    queryKey: ["products", { skip, limit: PAGE_LIMIT }],
+    queryFn: () => fetchProducts(skip),
+    placeholderData: keepPreviousData,
   })
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_LIMIT)) : undefined
+
+  function goToPage(nextPage: number) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set("page", String(nextPage))
+      return next
+    })
+  }
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -70,6 +94,35 @@ export function ProductBrowser() {
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
+        )}
+
+        {!isError && data && (
+          <nav
+            aria-label="Pagination"
+            className="mt-6 flex items-center justify-center gap-3"
+          >
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1 || isFetching}
+              className="inline-flex h-11 items-center gap-1 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+            >
+              <ChevronLeft className="size-4" aria-hidden="true" />
+              Previous
+            </button>
+            <span className="text-sm text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={(totalPages !== undefined && page >= totalPages) || isFetching}
+              className="inline-flex h-11 items-center gap-1 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
+          </nav>
         )}
       </main>
     </div>
