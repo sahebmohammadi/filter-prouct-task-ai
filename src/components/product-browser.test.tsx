@@ -30,12 +30,42 @@ function productsPage(page: number, total = 40): ProductsResponse {
   }
 }
 
-function mockPaginatedFetch() {
-  vi.mocked(fetch).mockImplementation(async (input) => {
+const DEFAULT_CATEGORY_LIST = ["beauty", "furniture", "smartphones"]
+
+function withCategoryList(
+  handler: (url: URL) => Response | Promise<Response>,
+  categories: string[] = DEFAULT_CATEGORY_LIST,
+) {
+  return async (input: RequestInfo | URL) => {
     const url = new URL(String(input))
-    const skip = Number(url.searchParams.get("skip"))
-    return jsonResponse(productsPage(skip / 12 + 1))
-  })
+    if (url.pathname === "/products/category-list") {
+      return jsonResponse(categories)
+    }
+    return handler(url)
+  }
+}
+
+function mockPaginatedFetch() {
+  vi.mocked(fetch).mockImplementation(
+    withCategoryList((url) => {
+      const skip = Number(url.searchParams.get("skip"))
+      return jsonResponse(productsPage(skip / 12 + 1))
+    }),
+  )
+}
+
+function mockFetchSequence(...responses: Array<Response | Error>) {
+  let i = 0
+  vi.mocked(fetch).mockImplementation(
+    withCategoryList(() => {
+      const response = responses[Math.min(i, responses.length - 1)]
+      i += 1
+      if (response instanceof Error) {
+        return Promise.reject(response)
+      }
+      return Promise.resolve(response)
+    }),
+  )
 }
 
 beforeEach(() => {
@@ -75,7 +105,9 @@ describe("ProductBrowser", () => {
       skip: 0,
       limit: 2,
     }
-    vi.mocked(fetch).mockResolvedValue(jsonResponse(products))
+    vi.mocked(fetch).mockImplementation(
+      withCategoryList(() => jsonResponse(products), []),
+    )
 
     renderWithQueryClient(<ProductBrowser />)
 
@@ -111,26 +143,25 @@ describe("ProductBrowser", () => {
 
   it("re-fetches the product list when retry is clicked", async () => {
     const user = userEvent.setup()
-    vi.mocked(fetch)
-      .mockRejectedValueOnce(new Error("network down"))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          products: [
-            {
-              id: 1,
-              title: "Essence Mascara Lash Princess",
-              category: "beauty",
-              price: 9.99,
-              rating: 4.94,
-              thumbnail:
-                "https://cdn.dummyjson.com/products/images/1/thumbnail.png",
-            },
-          ],
-          total: 1,
-          skip: 0,
-          limit: 1,
-        }),
-      )
+    mockFetchSequence(
+      new Error("network down"),
+      jsonResponse({
+        products: [
+          {
+            id: 1,
+            title: "Essence Mascara Lash Princess",
+            category: "beauty",
+            price: 9.99,
+            rating: 4.94,
+            thumbnail:
+              "https://cdn.dummyjson.com/products/images/1/thumbnail.png",
+          },
+        ],
+        total: 1,
+        skip: 0,
+        limit: 1,
+      }),
+    )
 
     renderWithQueryClient(<ProductBrowser />)
 
@@ -140,33 +171,32 @@ describe("ProductBrowser", () => {
     expect(
       await screen.findByText("Essence Mascara Lash Princess"),
     ).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch).toHaveBeenCalledTimes(3)
   })
 
   it("replaces stale products with the error banner when a background refetch fails", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({
-          products: [
-            {
-              id: 1,
-              title: "Essence Mascara Lash Princess",
-              category: "beauty",
-              price: 9.99,
-              rating: 4.94,
-              thumbnail:
-                "https://cdn.dummyjson.com/products/images/1/thumbnail.png",
-            },
-          ],
-          total: 1,
-          skip: 0,
-          limit: 1,
-        }),
-      )
-      .mockRejectedValueOnce(new Error("network down"))
+    mockFetchSequence(
+      jsonResponse({
+        products: [
+          {
+            id: 1,
+            title: "Essence Mascara Lash Princess",
+            category: "beauty",
+            price: 9.99,
+            rating: 4.94,
+            thumbnail:
+              "https://cdn.dummyjson.com/products/images/1/thumbnail.png",
+          },
+        ],
+        total: 1,
+        skip: 0,
+        limit: 1,
+      }),
+      new Error("network down"),
+    )
 
     renderWithQueryClient(<ProductBrowser />, { client })
 
@@ -185,8 +215,10 @@ describe("ProductBrowser", () => {
   })
 
   it("shows a 'No products found' message when the response has zero products", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      jsonResponse({ products: [], total: 0, skip: 0, limit: 0 }),
+    vi.mocked(fetch).mockImplementation(
+      withCategoryList(() =>
+        jsonResponse({ products: [], total: 0, skip: 0, limit: 0 }),
+      ),
     )
 
     renderWithQueryClient(<ProductBrowser />)
@@ -330,6 +362,86 @@ describe("ProductBrowser sort", () => {
     )
     expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
       "default",
+    )
+  })
+})
+
+describe("ProductBrowser category filter", () => {
+  it("lists categories from category-list plus 'All categories', defaulting to All categories", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    const select = screen.getByRole("combobox", { name: /category/i })
+    expect(select).toHaveValue("all")
+    expect(
+      screen.getByRole("option", { name: "All categories" }),
+    ).toBeInTheDocument()
+    for (const category of DEFAULT_CATEGORY_LIST) {
+      expect(
+        screen.getByRole("option", { name: category }),
+      ).toBeInTheDocument()
+    }
+  })
+
+  it("selecting a category sets ?category=<slug>, fetches from /products/category/{slug}, resets page to 1, and keeps the active sort", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?page=3&sortBy=price&order=desc"],
+    })
+
+    await screen.findByText("Product 25")
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /category/i }),
+      "beauty",
+    )
+
+    await screen.findByText("Product 1")
+    expect(router.state.location.search).toBe(
+      "?page=1&sortBy=price&order=desc&category=beauty",
+    )
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://dummyjson.com/products/category/beauty?limit=12&skip=0&sortBy=price&order=desc",
+    )
+  })
+
+  it("selecting 'All categories' clears category from the URL and reverts to the plain /products fetch", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?category=beauty&page=2"],
+    })
+
+    await screen.findByText("Product 13")
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /category/i }),
+      "All categories",
+    )
+
+    await screen.findByText("Product 1")
+    expect(router.state.location.search).toBe("?page=1")
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0",
+    )
+  })
+
+  it("reproduces a filtered view when a URL with ?category=<slug> is opened directly", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?category=furniture"],
+    })
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products/category/furniture?limit=12&skip=0",
+    )
+    expect(screen.getByRole("combobox", { name: /category/i })).toHaveValue(
+      "furniture",
     )
   })
 })

@@ -28,6 +28,8 @@ const SORT_OPTIONS: { value: string; label: string; sortBy?: SortField; order?: 
   { value: "rating-desc", label: "Rating (High to Low)", sortBy: "rating", order: "desc" },
 ]
 
+const ALL_CATEGORIES_VALUE = "all"
+
 function parsePage(value: string | null): number {
   const page = Number(value)
   return Number.isInteger(page) && page > 0 ? page : 1
@@ -51,8 +53,19 @@ function sortOptionValue(sort: Sort): string {
   return sort.sortBy && sort.order ? `${sort.sortBy}-${sort.order}` : "default"
 }
 
-async function fetchProducts(skip: number, sort: Sort): Promise<ProductsResponse> {
-  let url = `https://dummyjson.com/products?limit=${PAGE_LIMIT}&skip=${skip}`
+function parseCategory(searchParams: URLSearchParams): string | undefined {
+  return searchParams.get("category") ?? undefined
+}
+
+async function fetchProducts(
+  skip: number,
+  sort: Sort,
+  category: string | undefined,
+): Promise<ProductsResponse> {
+  const base = category
+    ? `https://dummyjson.com/products/category/${category}`
+    : "https://dummyjson.com/products"
+  let url = `${base}?limit=${PAGE_LIMIT}&skip=${skip}`
   if (sort.sortBy && sort.order) {
     url += `&sortBy=${sort.sortBy}&order=${sort.order}`
   }
@@ -63,17 +76,32 @@ async function fetchProducts(skip: number, sort: Sort): Promise<ProductsResponse
   return (await response.json()) as ProductsResponse
 }
 
+async function fetchCategories(): Promise<string[]> {
+  const response = await fetch("https://dummyjson.com/products/category-list")
+  if (!response.ok) {
+    throw new Error("Failed to fetch categories")
+  }
+  return (await response.json()) as string[]
+}
+
 export function ProductBrowser() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = parsePage(searchParams.get("page"))
   const skip = (page - 1) * PAGE_LIMIT
   const sort = parseSort(searchParams)
+  const category = parseCategory(searchParams)
 
   const { data, isPending, isFetching, isError, refetch } = useQuery({
-    queryKey: ["products", { skip, limit: PAGE_LIMIT, ...sort }],
-    queryFn: () => fetchProducts(skip, sort),
+    queryKey: ["products", { skip, limit: PAGE_LIMIT, category, ...sort }],
+    queryFn: () => fetchProducts(skip, sort, category),
     placeholderData: keepPreviousData,
   })
+
+  const { data: categoryList } = useQuery({
+    queryKey: ["categories"],
+    queryFn: fetchCategories,
+  })
+  const categoryOptions = categoryList ?? (category ? [category] : [])
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_LIMIT)) : undefined
 
@@ -101,29 +129,63 @@ export function ProductBrowser() {
     })
   }
 
+  function handleCategoryChange(value: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set("page", "1")
+      if (value === ALL_CATEGORIES_VALUE) {
+        next.delete("category")
+      } else {
+        next.set("category", value)
+      }
+      return next
+    })
+  }
+
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="border-b border-border px-4 py-3">
         <h1 className="text-lg font-semibold">Product Browser</h1>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-4">
-        <div className="mb-4 flex items-center justify-end gap-2">
-          <label htmlFor="sort" className="text-sm text-muted-foreground">
-            Sort
-          </label>
-          <select
-            id="sort"
-            aria-label="Sort by"
-            value={sortOptionValue(sort)}
-            onChange={(e) => handleSortChange(e.target.value)}
-            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-          >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="mb-4 flex items-center justify-end gap-4">
+          <div className="flex items-center gap-2">
+            <label htmlFor="category" className="text-sm text-muted-foreground">
+              Category
+            </label>
+            <select
+              id="category"
+              aria-label="Category"
+              value={category ?? ALL_CATEGORIES_VALUE}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value={ALL_CATEGORIES_VALUE}>All categories</option>
+              {categoryOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="sort" className="text-sm text-muted-foreground">
+              Sort
+            </label>
+            <select
+              id="sort"
+              aria-label="Sort by"
+              value={sortOptionValue(sort)}
+              onChange={(e) => handleSortChange(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {isPending && (
