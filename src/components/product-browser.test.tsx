@@ -264,3 +264,72 @@ describe("ProductBrowser pagination", () => {
     expect(screen.getByRole("button", { name: /next/i })).toBeDisabled()
   })
 })
+
+describe("ProductBrowser sort", () => {
+  it("omits sortBy/order from the request and shows the Default option by default", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />)
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0",
+    )
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
+      "default",
+    )
+  })
+
+  it("selecting a sort option sets sortBy/order in the URL, includes them in the request, and resets page to 1", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?page=3"],
+    })
+
+    await screen.findByText("Product 25")
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /sort/i }),
+      "price-desc",
+    )
+
+    await screen.findByText("Product 1")
+    expect(router.state.location.search).toBe("?page=1&sortBy=price&order=desc")
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0&sortBy=price&order=desc",
+    )
+  })
+
+  it("reproduces a sorted view when a URL with sortBy/order is opened directly", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?sortBy=rating&order=asc"],
+    })
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0&sortBy=rating&order=asc",
+    )
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
+      "rating-asc",
+    )
+  })
+
+  it("ignores an invalid sortBy/order combination and falls back to the Default state", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?sortBy=bogus&order=asc"],
+    })
+
+    await screen.findByText("Product 1")
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dummyjson.com/products?limit=12&skip=0",
+    )
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
+      "default",
+    )
+  })
+})

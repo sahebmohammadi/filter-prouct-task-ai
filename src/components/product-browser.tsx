@@ -8,15 +8,55 @@ import type { ProductsResponse } from "@/lib/types"
 const PRODUCT_GRID_CLASSES = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
 const PAGE_LIMIT = 12
 
+const SORT_FIELDS = ["title", "price", "rating"] as const
+type SortField = (typeof SORT_FIELDS)[number]
+const SORT_ORDERS = ["asc", "desc"] as const
+type SortOrder = (typeof SORT_ORDERS)[number]
+
+interface Sort {
+  sortBy?: SortField
+  order?: SortOrder
+}
+
+const SORT_OPTIONS: { value: string; label: string; sortBy?: SortField; order?: SortOrder }[] = [
+  { value: "default", label: "Default" },
+  { value: "title-asc", label: "Title (A-Z)", sortBy: "title", order: "asc" },
+  { value: "title-desc", label: "Title (Z-A)", sortBy: "title", order: "desc" },
+  { value: "price-asc", label: "Price (Low to High)", sortBy: "price", order: "asc" },
+  { value: "price-desc", label: "Price (High to Low)", sortBy: "price", order: "desc" },
+  { value: "rating-asc", label: "Rating (Low to High)", sortBy: "rating", order: "asc" },
+  { value: "rating-desc", label: "Rating (High to Low)", sortBy: "rating", order: "desc" },
+]
+
 function parsePage(value: string | null): number {
   const page = Number(value)
   return Number.isInteger(page) && page > 0 ? page : 1
 }
 
-async function fetchProducts(skip: number): Promise<ProductsResponse> {
-  const response = await fetch(
-    `https://dummyjson.com/products?limit=${PAGE_LIMIT}&skip=${skip}`,
-  )
+function parseSort(searchParams: URLSearchParams): Sort {
+  const sortBy = searchParams.get("sortBy")
+  const order = searchParams.get("order")
+  if (
+    sortBy &&
+    order &&
+    SORT_FIELDS.includes(sortBy as SortField) &&
+    SORT_ORDERS.includes(order as SortOrder)
+  ) {
+    return { sortBy: sortBy as SortField, order: order as SortOrder }
+  }
+  return {}
+}
+
+function sortOptionValue(sort: Sort): string {
+  return sort.sortBy && sort.order ? `${sort.sortBy}-${sort.order}` : "default"
+}
+
+async function fetchProducts(skip: number, sort: Sort): Promise<ProductsResponse> {
+  let url = `https://dummyjson.com/products?limit=${PAGE_LIMIT}&skip=${skip}`
+  if (sort.sortBy && sort.order) {
+    url += `&sortBy=${sort.sortBy}&order=${sort.order}`
+  }
+  const response = await fetch(url)
   if (!response.ok) {
     throw new Error("Failed to fetch products")
   }
@@ -27,10 +67,11 @@ export function ProductBrowser() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = parsePage(searchParams.get("page"))
   const skip = (page - 1) * PAGE_LIMIT
+  const sort = parseSort(searchParams)
 
   const { data, isPending, isFetching, isError, refetch } = useQuery({
-    queryKey: ["products", { skip, limit: PAGE_LIMIT }],
-    queryFn: () => fetchProducts(skip),
+    queryKey: ["products", { skip, limit: PAGE_LIMIT, ...sort }],
+    queryFn: () => fetchProducts(skip, sort),
     placeholderData: keepPreviousData,
   })
 
@@ -44,12 +85,47 @@ export function ProductBrowser() {
     })
   }
 
+  function handleSortChange(value: string) {
+    const option = SORT_OPTIONS.find((o) => o.value === value)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set("page", "1")
+      if (option?.sortBy && option.order) {
+        next.set("sortBy", option.sortBy)
+        next.set("order", option.order)
+      } else {
+        next.delete("sortBy")
+        next.delete("order")
+      }
+      return next
+    })
+  }
+
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="border-b border-border px-4 py-3">
         <h1 className="text-lg font-semibold">Product Browser</h1>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-4">
+        <div className="mb-4 flex items-center justify-end gap-2">
+          <label htmlFor="sort" className="text-sm text-muted-foreground">
+            Sort
+          </label>
+          <select
+            id="sort"
+            aria-label="Sort by"
+            value={sortOptionValue(sort)}
+            onChange={(e) => handleSortChange(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {isPending && (
           <div className={PRODUCT_GRID_CLASSES}>
             {Array.from({ length: 8 }, (_, i) => (
