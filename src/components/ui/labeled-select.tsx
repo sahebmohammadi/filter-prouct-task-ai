@@ -1,4 +1,5 @@
-import { Label } from "@/components/ui/label"
+import { cn } from "cn"
+import { LabeledField } from "@/components/ui/labeled-field"
 import {
   Select,
   SelectContent,
@@ -32,16 +33,20 @@ export function LabeledSelect({
   const items = Object.fromEntries(options.map((option) => [option.value, option.label]))
 
   return (
-    <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {label}
-      </Label>
+    <LabeledField id={id} label={label}>
       <Select
         value={value}
         items={items}
-        onValueChange={(next) => onValueChange(next ?? value)}
+        onValueChange={(next) => {
+          // Base UI fires on every item click, including the already-selected one;
+          // a native <select> doesn't, and callers treat this as a real change.
+          if (next !== null && next !== value) onValueChange(next)
+        }}
       >
-        <SelectTrigger id={id} aria-label={label} className={className}>
+        <SelectTrigger
+          id={id}
+          className={cn("w-full data-[size=default]:h-9", className)}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -52,6 +57,6 @@ export function LabeledSelect({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </LabeledField>
   )
 }

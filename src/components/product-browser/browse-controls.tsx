@@ -1,56 +1,52 @@
 import { LabeledInput } from "@/components/ui/labeled-input"
 import { LabeledSelect, type SelectOption } from "@/components/ui/labeled-select"
-import { ALL_CATEGORIES_VALUE, SORT_OPTIONS } from "@/hooks/use-browse-state"
 
-interface FilterBarProps {
+interface BrowseControlsProps {
   searchInput: string
   categoryValue: string
-  categoryOptions: string[]
+  categoryOptions: SelectOption[]
   sortValue: string
+  sortOptions: SelectOption[]
   onSearchChange: (value: string) => void
   onCategoryChange: (value: string) => void
   onSortChange: (value: string) => void
 }
 
-export function FilterBar({
+export function BrowseControls({
   searchInput,
   categoryValue,
   categoryOptions,
   sortValue,
+  sortOptions,
   onSearchChange,
   onCategoryChange,
   onSortChange,
-}: FilterBarProps) {
-  const categorySelectOptions: SelectOption[] = [
-    { value: ALL_CATEGORIES_VALUE, label: "All categories" },
-    ...categoryOptions.map((option) => ({ value: option, label: option })),
-  ]
-
+}: BrowseControlsProps) {
   return (
-    <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+    <div className="mb-4 flex flex-wrap items-center justify-end gap-4">
       <LabeledInput
         id="search"
         label="Search"
         value={searchInput}
         onValueChange={onSearchChange}
         placeholder="Search products..."
-        className="w-full sm:w-56"
+        className="sm:w-56"
       />
       <LabeledSelect
         id="category"
         label="Category"
         value={categoryValue}
-        options={categorySelectOptions}
+        options={categoryOptions}
         onValueChange={onCategoryChange}
-        className="w-full sm:w-44"
+        className="sm:w-44"
       />
       <LabeledSelect
         id="sort"
-        label="Sort"
+        label="Sort by"
         value={sortValue}
-        options={SORT_OPTIONS}
+        options={sortOptions}
         onValueChange={onSortChange}
-        className="w-full sm:w-48"
+        className="sm:w-48"
       />
     </div>
   )

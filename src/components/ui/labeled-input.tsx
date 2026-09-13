@@ -1,5 +1,6 @@
+import { cn } from "cn"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { LabeledField } from "@/components/ui/labeled-field"
 
 interface LabeledInputProps {
   id: string
@@ -19,19 +20,15 @@ export function LabeledInput({
   className,
 }: LabeledInputProps) {
   return (
-    <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {label}
-      </Label>
+    <LabeledField id={id} label={label}>
       <Input
         id={id}
         type="text"
-        aria-label={label}
         value={value}
         onChange={(e) => onValueChange(e.target.value)}
         placeholder={placeholder}
-        className={className}
+        className={cn("h-9 w-full", className)}
       />
-    </div>
+    </LabeledField>
   )
 }

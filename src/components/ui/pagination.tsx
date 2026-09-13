@@ -7,8 +7,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 function Pagination({ className, ...props }: React.ComponentProps<"nav">) {
   return (
     <nav
-      role="navigation"
-      aria-label="pagination"
+      aria-label="Pagination"
       data-slot="pagination"
       className={cn("mx-auto flex w-full justify-center", className)}
       {...props}
@@ -34,39 +33,35 @@ function PaginationItem({ ...props }: React.ComponentProps<"li">) {
 // driven by callbacks, and anchors have no meaningful disabled state.
 function PaginationPrevious({
   className,
-  text = "Previous",
   ...props
-}: React.ComponentProps<typeof Button> & { text?: string }) {
+}: React.ComponentProps<typeof Button>) {
   return (
     <Button
       variant="outline"
       size="lg"
-      aria-label="Go to previous page"
       data-slot="pagination-previous"
       className={cn("pl-1.5!", className)}
       {...props}
     >
       <ChevronLeftIcon data-icon="inline-start" />
-      {text}
+      Previous
     </Button>
   )
 }
 
 function PaginationNext({
   className,
-  text = "Next",
   ...props
-}: React.ComponentProps<typeof Button> & { text?: string }) {
+}: React.ComponentProps<typeof Button>) {
   return (
     <Button
       variant="outline"
       size="lg"
-      aria-label="Go to next page"
       data-slot="pagination-next"
       className={cn("pr-1.5!", className)}
       {...props}
     >
-      {text}
+      Next
       <ChevronRightIcon data-icon="inline-end" />
     </Button>
   )

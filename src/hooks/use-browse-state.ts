@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
-import { useSearchParams } from "react-router"
+import { type NavigateOptions, useSearchParams } from "react-router"
 import {
   isSortField,
   isSortOrder,
   PAGE_LIMIT,
+  type ProductQuery,
   type Sort,
   type SortField,
   type SortOrder,
@@ -50,42 +51,48 @@ function parseCategory(searchParams: URLSearchParams): string | undefined {
   return searchParams.get("category") ?? undefined
 }
 
-function parseQuery(searchParams: URLSearchParams): string {
+function parseSearchTerm(searchParams: URLSearchParams): string {
   return searchParams.get("q") ?? ""
 }
 
 export function useBrowseState() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = parsePage(searchParams.get("page"))
-  const skip = (page - 1) * PAGE_LIMIT
   const sort = parseSort(searchParams)
   const category = parseCategory(searchParams)
-  const q = parseQuery(searchParams)
+  const searchTerm = parseSearchTerm(searchParams)
 
-  const [searchInput, setSearchInput] = useState(q)
+  const [searchInput, setSearchInput] = useState(searchTerm)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
-    setSearchInput(q)
-  }, [q])
+    setSearchInput(searchTerm)
+  }, [searchTerm])
 
   useEffect(() => {
     return () => clearTimeout(debounceTimerRef.current)
   }, [])
 
-  function goToPage(nextPage: number) {
+  function updateSearchParams(
+    page: number,
+    apply: (next: URLSearchParams) => void = () => {},
+    options?: NavigateOptions,
+  ) {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
-      next.set("page", String(nextPage))
+      next.set("page", String(page))
+      apply(next)
       return next
-    })
+    }, options)
+  }
+
+  function goToPage(nextPage: number) {
+    updateSearchParams(nextPage)
   }
 
   function handleSortChange(value: string) {
     const option = SORT_OPTIONS.find((o) => o.value === value)
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.set("page", "1")
+    updateSearchParams(1, (next) => {
       if (option?.sortBy && option.order) {
         next.set("sortBy", option.sortBy)
         next.set("order", option.order)
@@ -93,50 +100,54 @@ export function useBrowseState() {
         next.delete("sortBy")
         next.delete("order")
       }
-      return next
     })
   }
 
   function handleCategoryChange(value: string) {
     clearTimeout(debounceTimerRef.current)
     setSearchInput("")
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.set("page", "1")
+    updateSearchParams(1, (next) => {
       next.delete("q")
       if (value === ALL_CATEGORIES_VALUE) {
         next.delete("category")
       } else {
         next.set("category", value)
       }
-      return next
     })
   }
 
   function handleSearchChange(value: string) {
     setSearchInput(value)
     clearTimeout(debounceTimerRef.current)
+    // ADR 0002: the first settled Search Term pushes an entry; refining it replaces
+    // that entry, so one Back undoes the whole search.
+    const isRefiningSearch = searchTerm !== ""
     debounceTimerRef.current = setTimeout(() => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev)
-        next.set("page", "1")
-        if (value) {
-          next.set("q", value)
-          next.delete("category")
-        } else {
-          next.delete("q")
-        }
-        return next
-      })
+      updateSearchParams(
+        1,
+        (next) => {
+          if (value) {
+            next.set("q", value)
+            next.delete("category")
+          } else {
+            next.delete("q")
+          }
+        },
+        { replace: isRefiningSearch },
+      )
     }, SEARCH_DEBOUNCE_MS)
+  }
+
+  const productQuery: ProductQuery = {
+    skip: (page - 1) * PAGE_LIMIT,
+    sort,
+    category,
+    searchTerm,
   }
 
   return {
     page,
-    skip,
-    sort,
-    category,
-    q,
+    productQuery,
     searchInput,
     sortValue: sortOptionValue(sort),
     categoryValue: category ?? ALL_CATEGORIES_VALUE,

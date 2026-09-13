@@ -6,6 +6,9 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination"
 
+// 44px: page controls must stay usable one-handed on a phone (issue #4).
+const PAGE_BUTTON_CLASSES = "h-11"
+
 interface ProductPaginationProps {
   page: number
   totalPages: number | undefined
@@ -26,6 +29,7 @@ export function ProductPagination({
           <PaginationPrevious
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1 || isFetching}
+            className={PAGE_BUTTON_CLASSES}
           />
         </PaginationItem>
         <PaginationItem className="text-sm text-muted-foreground">
@@ -35,6 +39,7 @@ export function ProductPagination({
           <PaginationNext
             onClick={() => onPageChange(page + 1)}
             disabled={(totalPages !== undefined && page >= totalPages) || isFetching}
+            className={PAGE_BUTTON_CLASSES}
           />
         </PaginationItem>
       </PaginationContent>

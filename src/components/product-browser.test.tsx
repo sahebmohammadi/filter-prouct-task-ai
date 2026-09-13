@@ -57,7 +57,7 @@ function mockPaginatedFetch() {
 // The shadcn Select is a listbox popup, not a native <select>: open it, then pick.
 async function chooseOption(
   user: ReturnType<typeof userEvent.setup>,
-  selectName: RegExp,
+  selectName: string | RegExp,
   optionName: string,
 ) {
   await user.click(screen.getByRole("combobox", { name: selectName }))
@@ -296,6 +296,17 @@ describe("ProductBrowser pagination", () => {
     expect(router.state.location.search).toBe("")
   })
 
+  it("labels the pagination landmark and its Previous/Next buttons", async () => {
+    mockPaginatedFetch()
+
+    renderWithQueryClient(<ProductBrowser />, { initialEntries: ["/?page=2"] })
+
+    await screen.findByText("Page 2 of 4")
+    expect(screen.getByRole("navigation", { name: "Pagination" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument()
+  })
+
   it("disables Previous on the first page and Next on the last page", async () => {
     mockPaginatedFetch()
 
@@ -338,6 +349,21 @@ describe("ProductBrowser sort", () => {
     expect(fetch).toHaveBeenLastCalledWith(
       "https://dummyjson.com/products?limit=12&skip=0&sortBy=price&order=desc",
     )
+  })
+
+  it("re-selecting the current sort option leaves the URL and page untouched", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?page=3"],
+    })
+
+    await screen.findByText("Product 25")
+    await chooseOption(user, "Sort by", "Default")
+
+    expect(router.state.location.search).toBe("?page=3")
+    expect(screen.getByText("Page 3 of 4")).toBeInTheDocument()
   })
 
   it("reproduces a sorted view when a URL with sortBy/order is opened directly", async () => {
@@ -545,6 +571,43 @@ describe("ProductBrowser search", () => {
     })
 
     expect(router.state.location.search).toBe("?category=beauty")
+  })
+
+  it("refining a search replaces its history entry, so one Back undoes the whole search", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?category=beauty"],
+    })
+
+    await screen.findByText("Product 1")
+    const searchBox = screen.getByRole("textbox", { name: "Search" })
+    await user.type(searchBox, "ph")
+    await waitFor(() => expect(router.state.location.search).toBe("?page=1&q=ph"))
+    await user.type(searchBox, "one")
+    await waitFor(() => expect(router.state.location.search).toBe("?page=1&q=phone"))
+
+    act(() => {
+      router.navigate(-1)
+    })
+
+    expect(router.state.location.search).toBe("?category=beauty")
+  })
+
+  it("re-selecting 'All categories' during a search keeps the search term and page", async () => {
+    const user = userEvent.setup()
+    mockPaginatedFetch()
+
+    const { router } = renderWithQueryClient(<ProductBrowser />, {
+      initialEntries: ["/?q=mascara&page=3"],
+    })
+
+    await screen.findByText("Product 25")
+    await chooseOption(user, "Category", "All categories")
+
+    expect(router.state.location.search).toBe("?q=mascara&page=3")
+    expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("mascara")
   })
 
   it("reproduces a search view when a URL with ?q=<term> is opened directly", async () => {
