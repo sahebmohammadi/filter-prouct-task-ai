@@ -54,6 +54,16 @@ function mockPaginatedFetch() {
   )
 }
 
+// The shadcn Select is a listbox popup, not a native <select>: open it, then pick.
+async function chooseOption(
+  user: ReturnType<typeof userEvent.setup>,
+  selectName: RegExp,
+  optionName: string,
+) {
+  await user.click(screen.getByRole("combobox", { name: selectName }))
+  await user.click(await screen.findByRole("option", { name: optionName }))
+}
+
 function mockFetchSequence(...responses: Array<Response | Error>) {
   let i = 0
   vi.mocked(fetch).mockImplementation(
@@ -307,8 +317,8 @@ describe("ProductBrowser sort", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://dummyjson.com/products?limit=12&skip=0",
     )
-    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
-      "default",
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveTextContent(
+      "Default",
     )
   })
 
@@ -321,10 +331,7 @@ describe("ProductBrowser sort", () => {
     })
 
     await screen.findByText("Product 25")
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /sort/i }),
-      "price-desc",
-    )
+    await chooseOption(user, /sort/i, "Price (High to Low)")
 
     await screen.findByText("Product 1")
     expect(router.state.location.search).toBe("?page=1&sortBy=price&order=desc")
@@ -344,8 +351,8 @@ describe("ProductBrowser sort", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://dummyjson.com/products?limit=12&skip=0&sortBy=rating&order=asc",
     )
-    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
-      "rating-asc",
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveTextContent(
+      "Rating (Low to High)",
     )
   })
 
@@ -360,23 +367,26 @@ describe("ProductBrowser sort", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://dummyjson.com/products?limit=12&skip=0",
     )
-    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveValue(
-      "default",
+    expect(screen.getByRole("combobox", { name: /sort/i })).toHaveTextContent(
+      "Default",
     )
   })
 })
 
 describe("ProductBrowser category filter", () => {
   it("lists categories from category-list plus 'All categories', defaulting to All categories", async () => {
+    const user = userEvent.setup()
     mockPaginatedFetch()
 
     renderWithQueryClient(<ProductBrowser />)
 
     await screen.findByText("Product 1")
     const select = screen.getByRole("combobox", { name: /category/i })
-    expect(select).toHaveValue("all")
+    expect(select).toHaveTextContent("All categories")
+
+    await user.click(select)
     expect(
-      screen.getByRole("option", { name: "All categories" }),
+      await screen.findByRole("option", { name: "All categories" }),
     ).toBeInTheDocument()
     for (const category of DEFAULT_CATEGORY_LIST) {
       expect(
@@ -394,10 +404,7 @@ describe("ProductBrowser category filter", () => {
     })
 
     await screen.findByText("Product 25")
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /category/i }),
-      "beauty",
-    )
+    await chooseOption(user, /category/i, "beauty")
 
     await screen.findByText("Product 1")
     expect(router.state.location.search).toBe(
@@ -417,10 +424,7 @@ describe("ProductBrowser category filter", () => {
     })
 
     await screen.findByText("Product 13")
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /category/i }),
-      "All categories",
-    )
+    await chooseOption(user, /category/i, "All categories")
 
     await screen.findByText("Product 1")
     expect(router.state.location.search).toBe("?page=1")
@@ -440,9 +444,9 @@ describe("ProductBrowser category filter", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://dummyjson.com/products/category/furniture?limit=12&skip=0",
     )
-    expect(screen.getByRole("combobox", { name: /category/i })).toHaveValue(
-      "furniture",
-    )
+    expect(
+      screen.getByRole("combobox", { name: /category/i }),
+    ).toHaveTextContent("furniture")
   })
 })
 
@@ -495,9 +499,9 @@ describe("ProductBrowser search", () => {
       expect(router.state.location.search).toBe("?page=1&q=mascara"),
     )
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: /category/i })).toHaveValue(
-        "all",
-      ),
+      expect(
+        screen.getByRole("combobox", { name: /category/i }),
+      ).toHaveTextContent("All categories"),
     )
     await waitFor(() =>
       expect(fetch).toHaveBeenLastCalledWith(
@@ -515,10 +519,7 @@ describe("ProductBrowser search", () => {
     })
 
     await screen.findByText("Product 1")
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /category/i }),
-      "beauty",
-    )
+    await chooseOption(user, /category/i, "beauty")
 
     await screen.findByText("Product 1")
     expect(router.state.location.search).toBe("?page=1&category=beauty")
